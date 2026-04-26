@@ -21,7 +21,7 @@ cargo clippy -- -D warnings
 - Error types always populate `{tool, constraint, next_action}` triple
 - Session IDs are server-generated UUIDv7
 - `parking_lot::Mutex` for DB (no poisoning)
-- Async bridge: `tokio::task::spawn_blocking` for all DB operations
+- DB calls are sync (parking_lot::Mutex), called directly from async handlers
 
 ## Architecture
 
