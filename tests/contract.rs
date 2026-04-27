@@ -260,7 +260,7 @@ fn config_defaults_are_sane() {
         assert_eq!(cfg.log_level, "info");
 
         // TTLs — stored as ms so 600s → 600_000ms
-        assert_eq!(cfg.session_ttl_ms, 600 * 1000);
+        assert_eq!(cfg.session_ttl_ms, 1800 * 1000);
         assert_eq!(cfg.lock_default_ttl_ms, 600 * 1000);
         assert_eq!(cfg.lock_long_op_ttl_ms, 1800 * 1000);
         assert_eq!(cfg.lock_max_ttl_ms, 86400 * 1000);

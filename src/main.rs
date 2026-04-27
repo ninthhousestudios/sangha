@@ -336,10 +336,11 @@ async fn serve_http(
     std::fs::write(&pid_path, std::process::id().to_string())?;
 
     let cancel = CancellationToken::new();
-    // Claude Code doesn't ping idle MCP sessions; rmcp 1.5's 300s default
-    // keep-alive kills them. Disable so sessions survive long idle periods.
+    // rmcp 1.5's default 300s keep-alive killed idle CC sessions.
+    // 900s is long enough for idle periods but short enough to detect
+    // dead connections so Drop-based auto-unregister actually fires.
     let mut session_manager = LocalSessionManager::default();
-    session_manager.session_config.keep_alive = None;
+    session_manager.session_config.keep_alive = Some(std::time::Duration::from_secs(900));
     let session_manager = Arc::new(session_manager);
     let shttp_config =
         StreamableHttpServerConfig::default().with_cancellation_token(cancel.clone());

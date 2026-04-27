@@ -38,7 +38,7 @@ impl Config {
         let port: u16 = parse_env_or("SANGHA_PORT", 3200);
 
         // Parse all the _SEC env vars (seconds) and convert to ms.
-        let session_ttl_ms: i64 = parse_env_or::<i64>("SANGHA_SESSION_TTL_SEC", 600) * 1000;
+        let session_ttl_ms: i64 = parse_env_or::<i64>("SANGHA_SESSION_TTL_SEC", 1800) * 1000;
         let lock_default_ttl_ms: i64 =
             parse_env_or::<i64>("SANGHA_LOCK_TTL_SEC", 600) * 1000;
         let lock_long_op_ttl_ms: i64 =
