@@ -2,7 +2,7 @@
 
 [![License: MPL 2.0](https://img.shields.io/badge/License-MPL_2.0-brightgreen.svg)](https://opensource.org/licenses/MPL-2.0)
 
-Session coordination daemon for [manas](https://github.com/j0sh4rp3/manas). Provides a session registry with heartbeat TTL, advisory resource locks, and a broadcast inbox — all backed by SQLite.
+Session coordination daemon for [manas](https://github.com/ninthhousestudios/manas). Provides a session registry with heartbeat TTL, advisory resource locks, and a broadcast inbox — all backed by SQLite.
 
 Design inspired by [claude-presence](https://github.com/AshDevFr/claude-presence) by Georges Garnier (MIT).
 

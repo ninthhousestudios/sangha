@@ -78,191 +78,212 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         user: false,
         json: false,
     }) {
-        Commands::Serve { stdio } => {
-            let db = Arc::new(Db::open(&config)?);
-            db.run_migrations()?;
-            db.prune_all()?;
-
-            if stdio {
-                serve_stdio(db, config).await?;
-            } else {
-                serve_http(db, config).await?;
-            }
+        Commands::Serve { stdio } => cmd_serve(config, stdio).await?,
+        Commands::Status { project, user, json } => cmd_status(&config, project, user, json)?,
+        Commands::Locks { project, user, json } => cmd_locks(&config, project, user, json)?,
+        Commands::Clear { force_release, all, json } => {
+            cmd_clear(&config, force_release, all, json)?
         }
-
-        Commands::Status { project, user, json } => {
-            let db = Arc::new(Db::open(&config)?);
-            db.run_migrations()?;
-
-            let effective_project = if user {
-                Some(sangha::tools::validate::USER_SCOPE_PROJECT.to_string())
-            } else {
-                project
-            };
-
-            let sessions = db.list_sessions(effective_project.as_deref())?;
-
-            if json {
-                let formatted: Vec<serde_json::Value> = sessions
-                    .iter()
-                    .map(|s| {
-                        serde_json::json!({
-                            "session_id": s.id,
-                            "project": s.project,
-                            "branch": s.branch,
-                            "intent": s.intent,
-                            "pid": s.pid,
-                            "hostname": s.hostname,
-                            "started_at": s.started_at,
-                            "last_heartbeat": s.last_heartbeat,
-                        })
-                    })
-                    .collect();
-                println!("{}", serde_json::to_string_pretty(&formatted)?);
-            } else if sessions.is_empty() {
-                println!("No active sessions.");
-            } else {
-                println!("{} active session(s):\n", sessions.len());
-                for s in &sessions {
-                    println!("  {} ({})", s.id, s.project);
-                    if let Some(b) = &s.branch {
-                        println!("    branch: {b}");
-                    }
-                    if let Some(i) = &s.intent {
-                        println!("    intent: {i}");
-                    }
-                    println!();
-                }
-            }
-        }
-
-        Commands::Locks { project, user, json } => {
-            let db = Arc::new(Db::open(&config)?);
-            db.run_migrations()?;
-
-            let effective_project = if user {
-                Some(sangha::tools::validate::USER_SCOPE_PROJECT.to_string())
-            } else {
-                project
-            };
-
-            let locks = db.list_locks(effective_project.as_deref())?;
-
-            if json {
-                let formatted: Vec<serde_json::Value> = locks
-                    .iter()
-                    .map(|l| {
-                        serde_json::json!({
-                            "resource": l.resource,
-                            "project": l.project,
-                            "session_id": l.session_id,
-                            "branch": l.branch,
-                            "reason": l.reason,
-                            "long_op": l.long_op,
-                            "acquired_at": l.acquired_at,
-                            "expires_at": l.expires_at,
-                        })
-                    })
-                    .collect();
-                println!("{}", serde_json::to_string_pretty(&formatted)?);
-            } else if locks.is_empty() {
-                println!("No active locks.");
-            } else {
-                println!("{} active lock(s):\n", locks.len());
-                for l in &locks {
-                    println!("  {} (held by {})", l.resource, l.session_id);
-                    println!("    project: {}", l.project);
-                    if let Some(r) = &l.reason {
-                        println!("    reason: {r}");
-                    }
-                    if l.long_op {
-                        println!("    long_op: true");
-                    }
-                    println!();
-                }
-            }
-        }
-
-        Commands::Clear {
-            force_release,
-            all,
-            json,
-        } => {
-            let db = Arc::new(Db::open(&config)?);
-            db.run_migrations()?;
-
-            if let Some(resource) = force_release {
-                let locks = db.list_locks(None)?;
-                let mut released = 0;
-                for lock in &locks {
-                    if lock.resource == resource {
-                        let input = sangha::db::ReleaseInput {
-                            resource: lock.resource.clone(),
-                            project: lock.project.clone(),
-                            session_id: lock.session_id.clone(),
-                            force: true,
-                        };
-                        db.release_resource(input)?;
-                        released += 1;
-                    }
-                }
-                if json {
-                    println!("{}", serde_json::json!({ "released": released }));
-                } else {
-                    println!(
-                        "Force-released {released} lock(s) for resource '{resource}'."
-                    );
-                }
-            } else if all {
-                let sessions = db.list_sessions(None)?;
-                let count = sessions.len();
-                for s in &sessions {
-                    db.unregister_session(&s.id)?;
-                }
-                if json {
-                    println!("{}", serde_json::json!({ "cleared_sessions": count }));
-                } else {
-                    println!("Cleared {count} session(s) and their locks.");
-                }
-            } else {
-                eprintln!("Usage: sangha clear --force-release <resource> | --all");
-                std::process::exit(1);
-            }
-        }
-
-        Commands::Path => {
-            println!("{}", config.db_path.display());
-        }
-
-        Commands::Health => {
-            let db_ok = Db::open(&config).is_ok();
-
-            let addr = format!("{}:{}", config.host, config.port);
-            let daemon_running = tokio::net::TcpStream::connect(&addr).await.is_ok();
-
-            if let Ok(db) = Db::open(&config) {
-                let _ = db.run_migrations();
-                let sessions = db.list_sessions(None).unwrap_or_default();
-                let locks = db.list_locks(None).unwrap_or_default();
-
-                println!(
-                    "daemon:   {}",
-                    if daemon_running { "running" } else { "not running" }
-                );
-                println!("database: {}", if db_ok { "ok" } else { "error" });
-                println!("sessions: {}", sessions.len());
-                println!("locks:    {}", locks.len());
-                println!("db path:  {}", config.db_path.display());
-            } else {
-                println!(
-                    "daemon:   {}",
-                    if daemon_running { "running" } else { "not running" }
-                );
-                println!("database: error");
-            }
-        }
+        Commands::Path => println!("{}", config.db_path.display()),
+        Commands::Health => cmd_health(&config).await?,
     }
 
+    Ok(())
+}
+
+async fn cmd_serve(
+    config: Arc<Config>,
+    stdio: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let db = Arc::new(Db::open(&config)?);
+    db.run_migrations()?;
+    db.prune_all()?;
+
+    if stdio {
+        serve_stdio(db, config).await
+    } else {
+        serve_http(db, config).await
+    }
+}
+
+fn cmd_status(
+    config: &Arc<Config>,
+    project: Option<String>,
+    user: bool,
+    json: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let db = Arc::new(Db::open(config)?);
+    db.run_migrations()?;
+
+    let effective_project = if user {
+        Some(sangha::tools::validate::USER_SCOPE_PROJECT.to_string())
+    } else {
+        project
+    };
+
+    let sessions = db.list_sessions(effective_project.as_deref())?;
+
+    if json {
+        let formatted: Vec<serde_json::Value> = sessions
+            .iter()
+            .map(|s| {
+                serde_json::json!({
+                    "session_id": s.id,
+                    "project": s.project,
+                    "branch": s.branch,
+                    "intent": s.intent,
+                    "pid": s.pid,
+                    "hostname": s.hostname,
+                    "started_at": s.started_at,
+                    "last_heartbeat": s.last_heartbeat,
+                })
+            })
+            .collect();
+        println!("{}", serde_json::to_string_pretty(&formatted)?);
+    } else if sessions.is_empty() {
+        println!("No active sessions.");
+    } else {
+        println!("{} active session(s):\n", sessions.len());
+        for s in &sessions {
+            println!("  {} ({})", s.id, s.project);
+            if let Some(b) = &s.branch {
+                println!("    branch: {b}");
+            }
+            if let Some(i) = &s.intent {
+                println!("    intent: {i}");
+            }
+            println!();
+        }
+    }
+    Ok(())
+}
+
+fn cmd_locks(
+    config: &Arc<Config>,
+    project: Option<String>,
+    user: bool,
+    json: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let db = Arc::new(Db::open(config)?);
+    db.run_migrations()?;
+
+    let effective_project = if user {
+        Some(sangha::tools::validate::USER_SCOPE_PROJECT.to_string())
+    } else {
+        project
+    };
+
+    let locks = db.list_locks(effective_project.as_deref())?;
+
+    if json {
+        let formatted: Vec<serde_json::Value> = locks
+            .iter()
+            .map(|l| {
+                serde_json::json!({
+                    "resource": l.resource,
+                    "project": l.project,
+                    "session_id": l.session_id,
+                    "branch": l.branch,
+                    "reason": l.reason,
+                    "long_op": l.long_op,
+                    "acquired_at": l.acquired_at,
+                    "expires_at": l.expires_at,
+                })
+            })
+            .collect();
+        println!("{}", serde_json::to_string_pretty(&formatted)?);
+    } else if locks.is_empty() {
+        println!("No active locks.");
+    } else {
+        println!("{} active lock(s):\n", locks.len());
+        for l in &locks {
+            println!("  {} (held by {})", l.resource, l.session_id);
+            println!("    project: {}", l.project);
+            if let Some(r) = &l.reason {
+                println!("    reason: {r}");
+            }
+            if l.long_op {
+                println!("    long_op: true");
+            }
+            println!();
+        }
+    }
+    Ok(())
+}
+
+fn cmd_clear(
+    config: &Arc<Config>,
+    force_release: Option<String>,
+    all: bool,
+    json: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let db = Arc::new(Db::open(config)?);
+    db.run_migrations()?;
+
+    if let Some(resource) = force_release {
+        let locks = db.list_locks(None)?;
+        let mut released = 0;
+        for lock in &locks {
+            if lock.resource == resource {
+                let input = sangha::db::ReleaseInput {
+                    resource: lock.resource.clone(),
+                    project: lock.project.clone(),
+                    session_id: lock.session_id.clone(),
+                    force: true,
+                };
+                db.release_resource(input)?;
+                released += 1;
+            }
+        }
+        if json {
+            println!("{}", serde_json::json!({ "released": released }));
+        } else {
+            println!("Force-released {released} lock(s) for resource '{resource}'.");
+        }
+    } else if all {
+        let sessions = db.list_sessions(None)?;
+        let count = sessions.len();
+        for s in &sessions {
+            db.unregister_session(&s.id)?;
+        }
+        if json {
+            println!("{}", serde_json::json!({ "cleared_sessions": count }));
+        } else {
+            println!("Cleared {count} session(s) and their locks.");
+        }
+    } else {
+        eprintln!("Usage: sangha clear --force-release <resource> | --all");
+        std::process::exit(1);
+    }
+    Ok(())
+}
+
+async fn cmd_health(config: &Arc<Config>) -> Result<(), Box<dyn std::error::Error>> {
+    let db_ok = Db::open(config).is_ok();
+
+    let addr = format!("{}:{}", config.host, config.port);
+    let daemon_running = tokio::net::TcpStream::connect(&addr).await.is_ok();
+
+    if let Ok(db) = Db::open(config) {
+        let _ = db.run_migrations();
+        let sessions = db.list_sessions(None).unwrap_or_default();
+        let locks = db.list_locks(None).unwrap_or_default();
+
+        println!(
+            "daemon:   {}",
+            if daemon_running { "running" } else { "not running" }
+        );
+        println!("database: {}", if db_ok { "ok" } else { "error" });
+        println!("sessions: {}", sessions.len());
+        println!("locks:    {}", locks.len());
+        println!("db path:  {}", config.db_path.display());
+    } else {
+        println!(
+            "daemon:   {}",
+            if daemon_running { "running" } else { "not running" }
+        );
+        println!("database: error");
+    }
     Ok(())
 }
 
@@ -270,8 +291,8 @@ async fn serve_stdio(
     db: Arc<Db>,
     config: Arc<Config>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    use rmcp::transport::stdio;
     use rmcp::ServiceExt;
+    use rmcp::transport::stdio;
     use sangha::mcp::SanghaServer;
 
     let server = SanghaServer::new(db, config);
@@ -315,7 +336,11 @@ async fn serve_http(
     std::fs::write(&pid_path, std::process::id().to_string())?;
 
     let cancel = CancellationToken::new();
-    let session_manager = Arc::new(LocalSessionManager::default());
+    // Claude Code doesn't ping idle MCP sessions; rmcp 1.5's 300s default
+    // keep-alive kills them. Disable so sessions survive long idle periods.
+    let mut session_manager = LocalSessionManager::default();
+    session_manager.session_config.keep_alive = None;
+    let session_manager = Arc::new(session_manager);
     let shttp_config =
         StreamableHttpServerConfig::default().with_cancellation_token(cancel.clone());
 
@@ -327,6 +352,9 @@ async fn serve_http(
         shttp_config,
     );
 
+    // axum 0.8 deprecates `any_service` in favour of `Router::route_service`,
+    // but rmcp's `StreamableHttpService` does not yet implement the trait
+    // bounds the new API requires. Revisit when rmcp upgrades.
     #[allow(deprecated)]
     let app = axum::Router::new().route("/mcp", any_service(mcp_service));
 

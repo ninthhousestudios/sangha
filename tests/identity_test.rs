@@ -29,6 +29,15 @@ async fn test_bind_twice_different_id() {
 }
 
 #[tokio::test]
+async fn test_bind_twice_different_project() {
+    let id = Identity::new();
+    id.bind("sess-1".to_string(), "proj-a".to_string()).expect("first bind ok");
+    let err = id.bind("sess-1".to_string(), "proj-b".to_string());
+    assert!(err.is_err(), "should reject different project on same session_id");
+    assert_eq!(id.project().unwrap(), "proj-a");
+}
+
+#[tokio::test]
 async fn test_get_before_bind() {
     let id = Identity::new();
     assert!(!id.is_bound());

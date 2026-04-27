@@ -123,7 +123,6 @@ pub struct ClaimResult {
     pub ok: bool,
     pub held_by: Option<HolderInfo>,
     pub lock: Option<LockRow>,
-    pub session_recreated: bool,
 }
 
 pub struct HolderInfo {
@@ -323,6 +322,8 @@ impl Db {
             });
         }
 
+        // Heartbeat just refreshed last_heartbeat to `now`, so the remaining
+        // TTL is the full configured session_ttl_ms.
         let ttl_remaining_ms = self.config.session_ttl_ms;
         Ok(HeartbeatResult {
             ok: true,
@@ -355,7 +356,9 @@ impl Db {
     /// List sessions, optionally filtered by project. Prunes dead sessions
     /// first so the caller always gets a fresh view.
     pub fn list_sessions(&self, project: Option<&str>) -> Result<Vec<SessionRow>> {
-        // Prune without holding the lock across the query.
+        // Prune without holding the lock across the query. The brief gap
+        // between prune and SELECT is benign — a session that becomes dead in
+        // that window simply appears once more and is pruned next call.
         self.prune_dead_sessions()?;
 
         let conn = self.conn.lock();
@@ -430,7 +433,6 @@ impl Db {
                 ok: false,
                 held_by: None,
                 lock: None,
-                session_recreated: false,
             });
         }
 
@@ -459,7 +461,6 @@ impl Db {
                 ok: false,
                 held_by: Some(holder),
                 lock: Some(held.clone()),
-                session_recreated: false,
             });
         }
 
@@ -498,7 +499,7 @@ impl Db {
             map_lock_row,
         )?;
 
-        Ok(ClaimResult { ok: true, held_by: None, lock: Some(lock), session_recreated: false })
+        Ok(ClaimResult { ok: true, held_by: None, lock: Some(lock) })
     }
 
     /// Release a resource lock. If `force=true` the `session_id` check is
@@ -627,9 +628,14 @@ impl Db {
     /// - Counts total and unread **before** marking the returned messages read.
     /// - Inserts `inbox_reads` records for every returned message.
     pub fn read_inbox(&self, input: ReadInboxInput) -> Result<ReadInboxResult> {
+        const DEFAULT_LIMIT: i64 = 100;
+        const MAX_LIMIT: i64 = 1000;
         let now = Self::now_ms();
         let conn = self.conn.lock();
-        let limit = input.limit.unwrap_or(i64::MAX);
+        let limit = input
+            .limit
+            .map(|n| n.clamp(1, MAX_LIMIT))
+            .unwrap_or(DEFAULT_LIMIT);
 
         // Total messages in project (excluding own).
         let total: i64 = conn

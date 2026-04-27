@@ -29,20 +29,32 @@ impl Identity {
                 Ok(())
             }
             Err(_) => {
-                // Already set — check if same value (idempotent)
-                let existing = self.session_id.get().unwrap();
-                if existing == &session_id {
-                    Ok(())
-                } else {
-                    Err(SanghaError::IdentityError {
+                // Already set — check if same values (idempotent on both)
+                if let Some(existing) = self.session_id.get()
+                    && existing != &session_id
+                {
+                    return Err(SanghaError::IdentityError {
                         tool: "session_register",
                         message: format!(
                             "connection already bound to session {existing}, cannot rebind to {session_id}"
                         ),
                         next_action: "Use the existing session or open a new HTTP connection."
                             .to_string(),
-                    })
+                    });
                 }
+                if let Some(existing_project) = self.project.get()
+                    && existing_project != &project
+                {
+                    return Err(SanghaError::IdentityError {
+                        tool: "session_register",
+                        message: format!(
+                            "connection already bound to project {existing_project}, cannot rebind to {project}"
+                        ),
+                        next_action: "Use the existing session or open a new HTTP connection."
+                            .to_string(),
+                    });
+                }
+                Ok(())
             }
         }
     }

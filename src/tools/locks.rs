@@ -13,6 +13,7 @@ use crate::db::{ClaimInput, Db, ReleaseInput};
 use crate::error::Result;
 use crate::tools::validate;
 use crate::ttl;
+use crate::util::format_ms;
 
 // ---------------------------------------------------------------------------
 // Args types (deserialized from MCP tool input)
@@ -76,8 +77,6 @@ pub struct ClaimOutput {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub lock: Option<FormattedLock>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub session_recreated: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub expires_at: Option<String>,
 }
 
@@ -123,11 +122,14 @@ pub async fn handle_claim(
     let now = chrono::Utc::now().timestamp_millis();
     let expires_at = now + effective_ttl;
 
+    // Inherit the branch from the session row so locks carry it for display.
+    let branch = db.get_session(session_id)?.and_then(|s| s.branch);
+
     let input = ClaimInput {
         resource: args.resource,
         project: effective_project.to_string(),
         session_id: session_id.to_string(),
-        branch: None,
+        branch,
         reason: args.reason,
         long_op,
         ttl_ms: effective_ttl,
@@ -143,7 +145,6 @@ pub async fn handle_claim(
             ok: true,
             held_by: None,
             lock,
-            session_recreated: if result.session_recreated { Some(true) } else { None },
             expires_at: expires_at_str,
         })
     } else {
@@ -157,7 +158,6 @@ pub async fn handle_claim(
             ok: false,
             held_by,
             lock: result.lock.map(lock_to_formatted),
-            session_recreated: None,
             expires_at: None,
         })
     }
@@ -205,12 +205,6 @@ pub async fn handle_list(db: &Arc<Db>, args: LockListArgs) -> Result<LockListOut
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-fn format_ms(ms: i64) -> String {
-    chrono::DateTime::from_timestamp_millis(ms)
-        .map(|dt| dt.to_rfc3339())
-        .unwrap_or_else(|| ms.to_string())
-}
 
 fn lock_to_formatted(row: crate::db::LockRow) -> FormattedLock {
     FormattedLock {

@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use crate::db::{Db, RegisterInput};
 use crate::error::Result;
 use crate::tools::validate;
+use crate::util::format_ms;
 
 // ---------------------------------------------------------------------------
 // Args types (deserialized from MCP tool input)
@@ -74,7 +75,7 @@ pub struct FormattedSession {
     pub started_at: String,
     /// ISO 8601 / RFC 3339 string.
     pub last_heartbeat: String,
-    pub metadata: Option<std::collections::HashMap<String, serde_json::Value>>,
+    pub metadata: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Serialize)]
@@ -181,12 +182,6 @@ pub async fn handle_list(db: &Arc<Db>, args: ListArgs) -> Result<ListOutput> {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-fn format_ms(ms: i64) -> String {
-    chrono::DateTime::from_timestamp_millis(ms)
-        .map(|dt| dt.to_rfc3339())
-        .unwrap_or_else(|| ms.to_string())
-}
 
 fn session_to_formatted(row: crate::db::SessionRow) -> FormattedSession {
     // Parse the stored JSON string back into a Value for output.

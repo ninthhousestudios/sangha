@@ -1,6 +1,6 @@
 -- NOTE: PRAGMAs are set per-connection in Db::open(), NOT here.
 
-CREATE TABLE sessions (
+CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY,
     project TEXT NOT NULL,
     branch TEXT,
@@ -11,10 +11,10 @@ CREATE TABLE sessions (
     last_heartbeat INTEGER NOT NULL,
     metadata TEXT
 );
-CREATE INDEX idx_sessions_project ON sessions(project);
-CREATE INDEX idx_sessions_heartbeat ON sessions(last_heartbeat);
+CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project);
+CREATE INDEX IF NOT EXISTS idx_sessions_heartbeat ON sessions(last_heartbeat);
 
-CREATE TABLE resource_locks (
+CREATE TABLE IF NOT EXISTS resource_locks (
     resource TEXT NOT NULL,
     project TEXT NOT NULL,
     session_id TEXT NOT NULL,
@@ -27,10 +27,10 @@ CREATE TABLE resource_locks (
     PRIMARY KEY (project, resource),
     FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
 );
-CREATE INDEX idx_locks_expires ON resource_locks(expires_at);
-CREATE INDEX idx_locks_session ON resource_locks(session_id);
+CREATE INDEX IF NOT EXISTS idx_locks_expires ON resource_locks(expires_at);
+CREATE INDEX IF NOT EXISTS idx_locks_session ON resource_locks(session_id);
 
-CREATE TABLE inbox (
+CREATE TABLE IF NOT EXISTS inbox (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     project TEXT NOT NULL,
     from_session TEXT NOT NULL,
@@ -39,9 +39,9 @@ CREATE TABLE inbox (
     tags TEXT,
     created_at INTEGER NOT NULL
 );
-CREATE INDEX idx_inbox_project ON inbox(project, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_inbox_project ON inbox(project, created_at DESC);
 
-CREATE TABLE inbox_reads (
+CREATE TABLE IF NOT EXISTS inbox_reads (
     session_id TEXT NOT NULL,
     message_id INTEGER NOT NULL,
     read_at INTEGER NOT NULL,
