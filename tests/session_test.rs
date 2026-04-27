@@ -307,3 +307,156 @@ async fn test_not_pruned_within_ttl() {
     assert_eq!(list.sessions.len(), 1);
     assert_eq!(list.sessions[0].session_id, reg.session_id);
 }
+
+// ---------------------------------------------------------------------------
+// 10. double unregister returns ok=false, no panic (P2 #24)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_double_unregister() {
+    let db = common::test_db();
+    let project = common::unique_project("double-unreg");
+
+    let reg = handle_register(
+        &db,
+        None,
+        RegisterArgs { project: project.clone(), branch: None, intent: None, metadata: None },
+    )
+    .await
+    .expect("register ok");
+
+    let first = handle_unregister(&db, &reg.session_id).await.expect("first unregister ok");
+    assert!(first.ok);
+
+    let second = handle_unregister(&db, &reg.session_id).await.expect("second unregister ok");
+    assert!(!second.ok, "second unregister should return ok=false");
+}
+
+// ---------------------------------------------------------------------------
+// 11. unregister unknown id returns ok=false (P2 #24)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_unregister_unknown_id() {
+    let db = common::test_db();
+
+    let out = handle_unregister(&db, "00000000-0000-0000-0000-000000000000")
+        .await
+        .expect("should not error");
+
+    assert!(!out.ok, "unregistering unknown id should return ok=false");
+}
+
+// ---------------------------------------------------------------------------
+// 12. re-register preserves started_at (P3 #42 — fix assertion)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_register_upsert_preserves_started_at() {
+    let db = common::test_db();
+    let project = common::unique_project("upsert-started");
+
+    let first = handle_register(
+        &db,
+        None,
+        RegisterArgs {
+            project: project.clone(),
+            branch: Some("main".to_string()),
+            intent: None,
+            metadata: None,
+        },
+    )
+    .await
+    .expect("first register ok");
+
+    let started_before = db
+        .get_session(&first.session_id)
+        .expect("get ok")
+        .expect("session exists")
+        .started_at;
+
+    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+
+    handle_register(
+        &db,
+        Some(&first.session_id),
+        RegisterArgs {
+            project: project.clone(),
+            branch: Some("feature".to_string()),
+            intent: Some("new".to_string()),
+            metadata: None,
+        },
+    )
+    .await
+    .expect("re-register ok");
+
+    let started_after = db
+        .get_session(&first.session_id)
+        .expect("get ok")
+        .expect("session exists")
+        .started_at;
+
+    assert_eq!(
+        started_before, started_after,
+        "started_at must be preserved across re-registration"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 13. prune_dead_sessions returns count (P3 #45)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_prune_dead_sessions_returns_count() {
+    let short_ttl_config = Arc::new(Config {
+        db_path: std::path::PathBuf::from(":memory:"),
+        host: "127.0.0.1".to_string(),
+        port: 0,
+        session_ttl_ms: 50,
+        lock_default_ttl_ms: 600_000,
+        lock_long_op_ttl_ms: 1_800_000,
+        lock_max_ttl_ms: 86_400_000,
+        inbox_retention_ms: 86_400_000,
+        log_level: "info".to_string(),
+    });
+    let db = Arc::new(Db::open_memory(&short_ttl_config).expect("open db"));
+    db.run_migrations().expect("migrate");
+
+    let project = common::unique_project("prune-count");
+
+    handle_register(
+        &db,
+        None,
+        RegisterArgs { project: project.clone(), branch: None, intent: None, metadata: None },
+    )
+    .await
+    .expect("register ok");
+
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+    let pruned = db.prune_dead_sessions().expect("prune ok");
+    assert_eq!(pruned, 1, "should have pruned exactly 1 dead session");
+}
+
+// ---------------------------------------------------------------------------
+// 14. empty project rejected by validation (P1 #5 — handler→validator)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_register_empty_project_rejected() {
+    let db = common::test_db();
+
+    let result = handle_register(
+        &db,
+        None,
+        RegisterArgs {
+            project: String::new(),
+            branch: None,
+            intent: None,
+            metadata: None,
+        },
+    )
+    .await;
+
+    assert!(result.is_err(), "empty project should be rejected by validation");
+}

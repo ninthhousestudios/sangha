@@ -6,7 +6,7 @@
 use std::path::PathBuf;
 use std::str::FromStr;
 
-use crate::error::{Result, SanghaError};
+use crate::error::Result;
 
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -92,8 +92,3 @@ fn parse_env_or<T: FromStr + std::fmt::Display>(name: &str, default: T) -> T {
         },
     }
 }
-
-// Silence unused-import warning when SanghaError isn't used directly in this file.
-const _: fn() = || {
-    let _: Option<SanghaError> = None;
-};

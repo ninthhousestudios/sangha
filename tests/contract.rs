@@ -46,6 +46,12 @@ fn every_error_variant_populates_contract() {
             next_action: "Register a session first.".to_string(),
         },
         SanghaError::Internal("unexpected state".to_string()),
+        SanghaError::Db(rusqlite::Error::QueryReturnedNoRows),
+        SanghaError::Db(rusqlite::Error::SqliteFailure(
+            rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_CONSTRAINT),
+            Some("UNIQUE constraint failed".to_string()),
+        )),
+        SanghaError::Db(rusqlite::Error::InvalidPath("bad".into())),
     ];
 
     for e in &variants {

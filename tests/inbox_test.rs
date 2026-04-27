@@ -409,3 +409,167 @@ async fn test_counts_before_marking() {
     assert_eq!(out.unread_total, 3, "unread_total should reflect all 3 before marking");
     assert_eq!(out.total, 3, "total should be 3");
 }
+
+// ---------------------------------------------------------------------------
+// 10. cursor ordering — newest first, follow-up returns next (P3 #25)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_cursor_ordering() {
+    let db = common::test_db();
+    let project = common::unique_project("cursor-order");
+
+    let sid_a = register_session(&db, &project);
+    let sid_b = register_session(&db, &project);
+
+    for i in 1..=3 {
+        handle_broadcast(
+            &db,
+            &sid_a,
+            &project,
+            BroadcastArgs {
+                message: format!("msg-{i}"),
+                tags: None,
+                scope: None,
+            },
+        )
+        .await
+        .expect("broadcast ok");
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    }
+
+    // Read limit=1 — should get the newest (msg-3) due to ORDER BY created_at DESC.
+    let first_read = handle_read_inbox(
+        &db,
+        &sid_b,
+        &project,
+        ReadInboxArgs { unread_only: Some(true), limit: Some(1), scope: None },
+    )
+    .await
+    .expect("first read ok");
+
+    assert_eq!(first_read.count, 1);
+    assert_eq!(first_read.messages[0].message, "msg-3");
+
+    // Follow-up read — msg-3 is now read, should get msg-2.
+    let second_read = handle_read_inbox(
+        &db,
+        &sid_b,
+        &project,
+        ReadInboxArgs { unread_only: Some(true), limit: Some(1), scope: None },
+    )
+    .await
+    .expect("second read ok");
+
+    assert_eq!(second_read.count, 1);
+    assert_eq!(second_read.messages[0].message, "msg-2");
+
+    // Unread total should have decremented.
+    assert_eq!(second_read.unread_total, 2, "unread should be 2 after first read of 1");
+}
+
+// ---------------------------------------------------------------------------
+// 11. limit clamping — 0 and huge values (P3 #44)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_limit_clamping() {
+    let db = common::test_db();
+    let project = common::unique_project("limit-clamp");
+
+    let sid_a = register_session(&db, &project);
+    let sid_b = register_session(&db, &project);
+
+    handle_broadcast(
+        &db,
+        &sid_a,
+        &project,
+        BroadcastArgs { message: "hello".to_string(), tags: None, scope: None },
+    )
+    .await
+    .expect("broadcast ok");
+
+    // limit=0 should be clamped to 1.
+    let out_zero = handle_read_inbox(
+        &db,
+        &sid_b,
+        &project,
+        ReadInboxArgs { unread_only: Some(false), limit: Some(0), scope: None },
+    )
+    .await
+    .expect("read ok");
+    assert_eq!(out_zero.count, 1, "limit=0 should be clamped to 1");
+
+    // limit=99999 should be clamped to MAX_LIMIT (1000).
+    let out_huge = handle_read_inbox(
+        &db,
+        &sid_b,
+        &project,
+        ReadInboxArgs { unread_only: Some(false), limit: Some(99999), scope: None },
+    )
+    .await
+    .expect("read ok");
+    assert_eq!(out_huge.count, 1, "should still return the 1 message");
+}
+
+// ---------------------------------------------------------------------------
+// 12. empty message rejected by validation (P1 #5 — handler→validator)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_broadcast_empty_message_rejected() {
+    let db = common::test_db();
+    let project = common::unique_project("empty-msg");
+
+    let sid = register_session(&db, &project);
+
+    let result = handle_broadcast(
+        &db,
+        &sid,
+        &project,
+        BroadcastArgs { message: String::new(), tags: None, scope: None },
+    )
+    .await;
+
+    assert!(result.is_err(), "empty message should be rejected by validation");
+}
+
+// ---------------------------------------------------------------------------
+// 13. prune_old_inbox returns count (P3 #45)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_prune_old_inbox_returns_count() {
+    let short_retention = std::sync::Arc::new(Config {
+        db_path: std::path::PathBuf::from(":memory:"),
+        host: "127.0.0.1".to_string(),
+        port: 0,
+        session_ttl_ms: 600_000,
+        lock_default_ttl_ms: 600_000,
+        lock_long_op_ttl_ms: 1_800_000,
+        lock_max_ttl_ms: 86_400_000,
+        inbox_retention_ms: 50,
+        log_level: "info".to_string(),
+    });
+    let db = std::sync::Arc::new(
+        sangha::db::Db::open_memory(&short_retention).expect("open db"),
+    );
+    db.run_migrations().expect("migrate");
+
+    let project = common::unique_project("prune-inbox-count");
+    let sid = register_session(&db, &project);
+
+    handle_broadcast(
+        &db,
+        &sid,
+        &project,
+        BroadcastArgs { message: "old msg".to_string(), tags: None, scope: None },
+    )
+    .await
+    .expect("broadcast ok");
+
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+    let pruned = db.prune_old_inbox().expect("prune ok");
+    assert_eq!(pruned, 1, "should have pruned exactly 1 old inbox message");
+}

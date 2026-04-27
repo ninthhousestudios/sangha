@@ -665,3 +665,149 @@ async fn test_claim_without_session_fails() {
 
     assert!(!out.ok, "claiming without a registered session should return ok=false");
 }
+
+// ---------------------------------------------------------------------------
+// 16. test_force_release (P2 #23)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_force_release() {
+    let db = common::test_db();
+    let cfg = default_config();
+    let project = common::unique_project("force-release");
+
+    let sid_a = register_session(&db, &project).await;
+    let sid_b = register_session(&db, &project).await;
+
+    handle_claim(
+        &db,
+        &cfg,
+        &sid_a,
+        &project,
+        ClaimArgs {
+            resource: "contested.rs".to_string(),
+            scope: None,
+            reason: Some("working on it".to_string()),
+            long_op: None,
+            ttl_sec: None,
+        },
+    )
+    .await
+    .expect("A claims");
+
+    // Session B force-releases A's lock.
+    let out = handle_release(
+        &db,
+        &sid_b,
+        &project,
+        ReleaseArgs { resource: "contested.rs".to_string(), scope: None, force: Some(true) },
+    )
+    .await
+    .expect("force release ok");
+
+    assert!(out.ok);
+    assert_eq!(out.status, "released");
+
+    // Lock should be gone.
+    let list = handle_list(&db, LockListArgs { project: Some(project.clone()), scope: None })
+        .await
+        .expect("list ok");
+    assert!(list.locks.is_empty(), "lock should be gone after force release");
+}
+
+// ---------------------------------------------------------------------------
+// 17. test_claim_empty_resource_rejected (P1 #5 — handler→validator)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_claim_empty_resource_rejected() {
+    let db = common::test_db();
+    let cfg = default_config();
+    let project = common::unique_project("empty-resource");
+    let sid = register_session(&db, &project).await;
+
+    let result = handle_claim(
+        &db,
+        &cfg,
+        &sid,
+        &project,
+        ClaimArgs {
+            resource: String::new(),
+            scope: None,
+            reason: None,
+            long_op: None,
+            ttl_sec: None,
+        },
+    )
+    .await;
+
+    assert!(result.is_err(), "empty resource should be rejected");
+}
+
+// ---------------------------------------------------------------------------
+// 18. test_release_empty_resource_rejected (P1 #5 — handler→validator)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_release_empty_resource_rejected() {
+    let db = common::test_db();
+    let project = common::unique_project("empty-rel");
+    let sid = register_session(&db, &project).await;
+
+    let result = handle_release(
+        &db,
+        &sid,
+        &project,
+        ReleaseArgs { resource: String::new(), scope: None, force: None },
+    )
+    .await;
+
+    assert!(result.is_err(), "empty resource should be rejected");
+}
+
+// ---------------------------------------------------------------------------
+// 19. test_prune_expired_locks_returns_count (P3 #45)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_prune_expired_locks_returns_count() {
+    let short_lock_config = std::sync::Arc::new(Config {
+        db_path: std::path::PathBuf::from(":memory:"),
+        host: "127.0.0.1".to_string(),
+        port: 0,
+        session_ttl_ms: 600_000,
+        lock_default_ttl_ms: 50,
+        lock_long_op_ttl_ms: 50,
+        lock_max_ttl_ms: 86_400_000,
+        inbox_retention_ms: 86_400_000,
+        log_level: "info".to_string(),
+    });
+    let db = std::sync::Arc::new(
+        sangha::db::Db::open_memory(&short_lock_config).expect("open db"),
+    );
+    db.run_migrations().expect("migrate");
+
+    let project = common::unique_project("prune-count");
+    let sid = register_session(&db, &project).await;
+
+    handle_claim(
+        &db,
+        &short_lock_config,
+        &sid,
+        &project,
+        ClaimArgs {
+            resource: "expire-me.rs".to_string(),
+            scope: None,
+            reason: None,
+            long_op: None,
+            ttl_sec: None,
+        },
+    )
+    .await
+    .expect("claim ok");
+
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+    let pruned = db.prune_expired_locks().expect("prune ok");
+    assert_eq!(pruned, 1, "should have pruned exactly 1 expired lock");
+}

@@ -106,6 +106,14 @@ async fn cmd_serve(
     }
 }
 
+fn resolve_cli_project(project: Option<String>, user: bool) -> Option<String> {
+    if user {
+        Some(sangha::tools::validate::USER_SCOPE_PROJECT.to_string())
+    } else {
+        project
+    }
+}
+
 fn cmd_status(
     config: &Arc<Config>,
     project: Option<String>,
@@ -115,11 +123,7 @@ fn cmd_status(
     let db = Arc::new(Db::open(config)?);
     db.run_migrations()?;
 
-    let effective_project = if user {
-        Some(sangha::tools::validate::USER_SCOPE_PROJECT.to_string())
-    } else {
-        project
-    };
+    let effective_project = resolve_cli_project(project, user);
 
     let sessions = db.list_sessions(effective_project.as_deref())?;
 
@@ -167,11 +171,7 @@ fn cmd_locks(
     let db = Arc::new(Db::open(config)?);
     db.run_migrations()?;
 
-    let effective_project = if user {
-        Some(sangha::tools::validate::USER_SCOPE_PROJECT.to_string())
-    } else {
-        project
-    };
+    let effective_project = resolve_cli_project(project, user);
 
     let locks = db.list_locks(effective_project.as_deref())?;
 
@@ -372,7 +372,7 @@ async fn serve_http(
 }
 
 async fn shutdown_signal() {
-    tokio::signal::ctrl_c()
-        .await
-        .expect("failed to install CTRL+C handler");
+    if let Err(e) = tokio::signal::ctrl_c().await {
+        tracing::error!("failed to install CTRL+C handler: {e}");
+    }
 }

@@ -38,3 +38,4 @@ dotenvy = "0.15"
 tokio = { version = "1", features = ["full"] }
 tempfile = "3"
 reqwest = { version = "0.12", features = ["json"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
