@@ -496,7 +496,7 @@ async fn test_auto_extend_on_heartbeat() {
     .expect("claim ok");
     assert!(before.ok);
 
-    let expires_before = before.expires_at.clone().unwrap();
+    let expires_before = before.lock.as_ref().unwrap().expires_at.clone();
 
     // Sleep past the halfway point (>100 ms).
     tokio::time::sleep(std::time::Duration::from_millis(120)).await;
@@ -543,7 +543,7 @@ async fn test_no_extend_fresh_lock() {
     .await
     .expect("claim ok");
     assert!(out.ok);
-    let expires_before = out.expires_at.clone().unwrap();
+    let expires_before = out.lock.as_ref().unwrap().expires_at.clone();
 
     // Call auto_extend immediately — lock is fresh, should not extend.
     let extended = db.auto_extend_locks(&sid).expect("auto_extend ok");

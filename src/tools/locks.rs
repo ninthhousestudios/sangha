@@ -76,8 +76,6 @@ pub struct ClaimOutput {
     pub held_by: Option<HolderInfo>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub lock: Option<FormattedLock>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub expires_at: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -105,6 +103,10 @@ pub async fn handle_claim(
     args: ClaimArgs,
 ) -> Result<ClaimOutput> {
     validate::non_empty("resource_claim", "resource", &args.resource)?;
+    validate::max_len("resource_claim", "resource", &args.resource, validate::MAX_RESOURCE)?;
+    if let Some(ref r) = args.reason {
+        validate::max_len("resource_claim", "reason", r, validate::MAX_REASON)?;
+    }
 
     let parsed_scope = validate::scope("resource_claim", args.scope.as_deref())?;
     let effective_project = validate::resolve_project(parsed_scope, session_project);
@@ -140,13 +142,10 @@ pub async fn handle_claim(
     let result = db.claim_resource(input)?;
 
     if result.ok {
-        let lock = result.lock.map(lock_to_formatted);
-        let expires_at_str = lock.as_ref().map(|l| l.expires_at.clone());
         Ok(ClaimOutput {
             ok: true,
             held_by: None,
-            lock,
-            expires_at: expires_at_str,
+            lock: result.lock.map(lock_to_formatted),
         })
     } else {
         let held_by = result.held_by.map(|h| HolderInfo {
@@ -159,7 +158,6 @@ pub async fn handle_claim(
             ok: false,
             held_by,
             lock: result.lock.map(lock_to_formatted),
-            expires_at: None,
         })
     }
 }
@@ -172,6 +170,7 @@ pub async fn handle_release(
     args: ReleaseArgs,
 ) -> Result<ReleaseOutput> {
     validate::non_empty("resource_release", "resource", &args.resource)?;
+    validate::max_len("resource_release", "resource", &args.resource, validate::MAX_RESOURCE)?;
 
     let parsed_scope = validate::scope("resource_release", args.scope.as_deref())?;
     let effective_project = validate::resolve_project(parsed_scope, session_project);

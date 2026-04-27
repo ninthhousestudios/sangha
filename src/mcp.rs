@@ -226,9 +226,16 @@ fn sangha_to_rmcp(e: SanghaError) -> ErrorData {
 }
 
 fn json_to_rmcp(e: serde_json::Error) -> ErrorData {
+    let data = crate::error::ErrorData {
+        tool: "unknown",
+        argument: None,
+        constraint: "response must serialize to JSON".to_string(),
+        received: None,
+        next_action: "This is an internal error. Retry or report the issue.".to_string(),
+    };
     ErrorData::new(
         rmcp::model::ErrorCode::INTERNAL_ERROR,
         format!("JSON serialization failed: {e}"),
-        None,
+        Some(serde_json::to_value(data).unwrap_or_default()),
     )
 }

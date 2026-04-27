@@ -9,7 +9,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::db::{BroadcastInput, Db, ReadInboxInput};
-use crate::error::Result;
+use crate::error::{Result, SanghaError};
 use crate::tools::validate;
 use crate::util::format_ms;
 
@@ -74,12 +74,16 @@ pub async fn handle_broadcast(
     args: BroadcastArgs,
 ) -> Result<BroadcastOutput> {
     validate::non_empty("broadcast", "message", &args.message)?;
+    validate::max_len("broadcast", "message", &args.message, validate::MAX_MESSAGE)?;
 
     let parsed_scope = validate::scope("broadcast", args.scope.as_deref())?;
     let effective_project = validate::resolve_project(parsed_scope, session_project);
 
-    let tags_json: Option<String> =
-        args.tags.map(|t| serde_json::to_string(&t).unwrap_or_default());
+    let tags_json: Option<String> = args
+        .tags
+        .map(|t| serde_json::to_string(&t))
+        .transpose()
+        .map_err(|e| SanghaError::Internal(e.to_string()))?;
 
     let from_branch = db
         .get_session(session_id)?

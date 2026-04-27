@@ -5,6 +5,14 @@
 
 use crate::error::{Result, SanghaError};
 
+pub const MAX_PROJECT: usize = 4096;
+pub const MAX_BRANCH: usize = 256;
+pub const MAX_INTENT: usize = 1024;
+pub const MAX_RESOURCE: usize = 512;
+pub const MAX_REASON: usize = 1024;
+pub const MAX_MESSAGE: usize = 8192;
+pub const MAX_METADATA: usize = 16384;
+
 /// Return `InvalidArgument` if `val` is empty.
 pub fn non_empty(tool: &'static str, arg: &'static str, val: &str) -> Result<()> {
     if val.is_empty() {

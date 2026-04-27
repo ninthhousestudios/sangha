@@ -10,7 +10,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::db::{Db, RegisterInput};
-use crate::error::Result;
+use crate::error::{Result, SanghaError};
 use crate::tools::validate;
 use crate::util::format_ms;
 
@@ -100,12 +100,24 @@ pub async fn handle_register(
     args: RegisterArgs,
 ) -> Result<RegisterOutput> {
     validate::non_empty("session_register", "project", &args.project)?;
+    validate::max_len("session_register", "project", &args.project, validate::MAX_PROJECT)?;
+    if let Some(ref b) = args.branch {
+        validate::max_len("session_register", "branch", b, validate::MAX_BRANCH)?;
+    }
+    if let Some(ref i) = args.intent {
+        validate::max_len("session_register", "intent", i, validate::MAX_INTENT)?;
+    }
 
     // Serialise metadata to a JSON string for storage.
     let metadata_str: Option<String> = args
         .metadata
         .as_ref()
-        .map(|v| serde_json::to_string(v).unwrap_or_default());
+        .map(serde_json::to_string)
+        .transpose()
+        .map_err(|e| SanghaError::Internal(e.to_string()))?;
+    if let Some(ref m) = metadata_str {
+        validate::max_len("session_register", "metadata", m, validate::MAX_METADATA)?;
+    }
 
     let input = RegisterInput {
         session_id: session_id.map(|s| s.to_string()),
