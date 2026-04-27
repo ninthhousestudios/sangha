@@ -55,6 +55,14 @@ impl SanghaServer {
     }
 }
 
+impl Drop for SanghaServer {
+    fn drop(&mut self) {
+        if let Ok(sid) = self.identity.session_id() {
+            let _ = self.db.unregister_session(sid);
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Tool methods
 // ---------------------------------------------------------------------------
