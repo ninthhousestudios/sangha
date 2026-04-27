@@ -104,16 +104,17 @@ pub async fn handle_claim(
     session_project: &str,
     args: ClaimArgs,
 ) -> Result<ClaimOutput> {
-    validate::non_empty("lock_claim", "resource", &args.resource)?;
+    validate::non_empty("resource_claim", "resource", &args.resource)?;
 
-    let parsed_scope = validate::scope("lock_claim", args.scope.as_deref())?;
+    let parsed_scope = validate::scope("resource_claim", args.scope.as_deref())?;
     let effective_project = validate::resolve_project(parsed_scope, session_project);
 
     let long_op = args.long_op.unwrap_or(false);
 
     // Convert ttl_sec → ms, validate against max.
     let ttl_ms_opt: Option<i64> = args.ttl_sec.map(|s| s * 1000);
-    let validated_ms = validate::ttl_in_range("lock_claim", ttl_ms_opt, config.lock_max_ttl_ms)?;
+    let validated_ms =
+        validate::ttl_in_range("resource_claim", "ttl_sec", ttl_ms_opt, config.lock_max_ttl_ms)?;
     // ttl_in_range returns 0 for None — treat that as "use default"
     let requested_ms = if validated_ms > 0 { Some(validated_ms) } else { None };
 
@@ -170,9 +171,9 @@ pub async fn handle_release(
     session_project: &str,
     args: ReleaseArgs,
 ) -> Result<ReleaseOutput> {
-    validate::non_empty("lock_release", "resource", &args.resource)?;
+    validate::non_empty("resource_release", "resource", &args.resource)?;
 
-    let parsed_scope = validate::scope("lock_release", args.scope.as_deref())?;
+    let parsed_scope = validate::scope("resource_release", args.scope.as_deref())?;
     let effective_project = validate::resolve_project(parsed_scope, session_project);
 
     let input = ReleaseInput {
@@ -188,7 +189,7 @@ pub async fn handle_release(
 
 /// List active resource locks.
 pub async fn handle_list(db: &Arc<Db>, args: LockListArgs) -> Result<LockListOutput> {
-    let parsed_scope = validate::scope("lock_list", args.scope.as_deref())?;
+    let parsed_scope = validate::scope("resource_list", args.scope.as_deref())?;
 
     let effective_project: Option<String> = match parsed_scope {
         validate::Scope::User => Some(validate::USER_SCOPE_PROJECT.to_string()),

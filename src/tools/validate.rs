@@ -53,28 +53,34 @@ pub fn positive_i64(tool: &'static str, arg: &'static str, val: i64) -> Result<(
 /// - `Some(v)` where v <= 0 → `InvalidArgument`
 /// - `Some(v)` where v > max_ms → `InvalidArgument`
 /// - otherwise → `Ok(v)`
-pub fn ttl_in_range(tool: &'static str, val: Option<i64>, max_ms: i64) -> Result<i64> {
+pub fn ttl_in_range(
+    tool: &'static str,
+    arg: &'static str,
+    val: Option<i64>,
+    max_ms: i64,
+) -> Result<i64> {
     match val {
         None => Ok(0),
         Some(v) => {
             if v <= 0 {
                 return Err(SanghaError::InvalidArgument {
                     tool,
-                    argument: "ttl_ms",
+                    argument: arg,
                     constraint: "> 0".to_string(),
                     received: Some(v.to_string()),
-                    next_action: "Pass a positive TTL in milliseconds, or omit to use the default."
-                        .to_string(),
+                    next_action: format!(
+                        "Pass a positive value for `{arg}`, or omit to use the default."
+                    ),
                 });
             }
             if v > max_ms {
                 return Err(SanghaError::InvalidArgument {
                     tool,
-                    argument: "ttl_ms",
+                    argument: arg,
                     constraint: format!("<= {max_ms} ms"),
                     received: Some(v.to_string()),
                     next_action: format!(
-                        "Pass a TTL <= {max_ms} ms, or omit to use the default."
+                        "Pass `{arg}` <= {max_ms} ms, or omit to use the default."
                     ),
                 });
             }
@@ -161,32 +167,32 @@ mod tests {
 
     #[test]
     fn ttl_none_returns_zero() {
-        assert_eq!(ttl_in_range("t", None, 10_000).unwrap(), 0);
+        assert_eq!(ttl_in_range("t", "ttl", None, 10_000).unwrap(), 0);
     }
 
     #[test]
     fn ttl_valid() {
-        assert_eq!(ttl_in_range("t", Some(5000), 10_000).unwrap(), 5000);
+        assert_eq!(ttl_in_range("t", "ttl", Some(5000), 10_000).unwrap(), 5000);
     }
 
     #[test]
     fn ttl_zero_err() {
-        assert!(ttl_in_range("t", Some(0), 10_000).is_err());
+        assert!(ttl_in_range("t", "ttl", Some(0), 10_000).is_err());
     }
 
     #[test]
     fn ttl_negative_err() {
-        assert!(ttl_in_range("t", Some(-1), 10_000).is_err());
+        assert!(ttl_in_range("t", "ttl", Some(-1), 10_000).is_err());
     }
 
     #[test]
     fn ttl_over_max_err() {
-        assert!(ttl_in_range("t", Some(10_001), 10_000).is_err());
+        assert!(ttl_in_range("t", "ttl", Some(10_001), 10_000).is_err());
     }
 
     #[test]
     fn ttl_at_max_ok() {
-        assert_eq!(ttl_in_range("t", Some(10_000), 10_000).unwrap(), 10_000);
+        assert_eq!(ttl_in_range("t", "ttl", Some(10_000), 10_000).unwrap(), 10_000);
     }
 
     #[test]

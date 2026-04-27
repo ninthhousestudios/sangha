@@ -73,9 +73,9 @@ pub async fn handle_broadcast(
     session_project: &str,
     args: BroadcastArgs,
 ) -> Result<BroadcastOutput> {
-    validate::non_empty("inbox_broadcast", "message", &args.message)?;
+    validate::non_empty("broadcast", "message", &args.message)?;
 
-    let parsed_scope = validate::scope("inbox_broadcast", args.scope.as_deref())?;
+    let parsed_scope = validate::scope("broadcast", args.scope.as_deref())?;
     let effective_project = validate::resolve_project(parsed_scope, session_project);
 
     let tags_json: Option<String> =
@@ -104,7 +104,7 @@ pub async fn handle_read_inbox(
     session_project: &str,
     args: ReadInboxArgs,
 ) -> Result<ReadInboxOutput> {
-    let parsed_scope = validate::scope("inbox_read", args.scope.as_deref())?;
+    let parsed_scope = validate::scope("read_inbox", args.scope.as_deref())?;
     let effective_project = validate::resolve_project(parsed_scope, session_project);
 
     let input = ReadInboxInput {
