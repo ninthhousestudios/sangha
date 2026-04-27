@@ -23,7 +23,7 @@ pub struct RegisterArgs {
     pub project: String,
     pub branch: Option<String>,
     pub intent: Option<String>,
-    pub metadata: Option<serde_json::Value>,
+    pub metadata: Option<std::collections::HashMap<String, serde_json::Value>>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -74,7 +74,7 @@ pub struct FormattedSession {
     pub started_at: String,
     /// ISO 8601 / RFC 3339 string.
     pub last_heartbeat: String,
-    pub metadata: Option<serde_json::Value>,
+    pub metadata: Option<std::collections::HashMap<String, serde_json::Value>>,
 }
 
 #[derive(Debug, Serialize)]
