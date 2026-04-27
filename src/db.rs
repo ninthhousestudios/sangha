@@ -194,10 +194,11 @@ impl Db {
         Ok(())
     }
 
-    /// Execute the embedded migration SQL to create the initial schema.
+    /// Execute the embedded migration SQL to create/update the schema.
     pub fn run_migrations(&self) -> Result<()> {
-        let sql = include_str!("../migrations/0001_initial.sql");
-        self.conn.lock().execute_batch(sql)?;
+        let conn = self.conn.lock();
+        conn.execute_batch(include_str!("../migrations/0001_initial.sql"))?;
+        conn.execute_batch(include_str!("../migrations/0002_inbox_reads_fk.sql"))?;
         Ok(())
     }
 
@@ -246,11 +247,15 @@ impl Db {
         Ok(n)
     }
 
-    /// Run all three pruners in sequence.
+    /// Run all three pruners in a single lock hold.
     pub fn prune_all(&self) -> Result<()> {
-        self.prune_dead_sessions()?;
-        self.prune_expired_locks()?;
-        self.prune_old_inbox()?;
+        let now = Self::now_ms();
+        let conn = self.conn.lock();
+        let session_cutoff = now - self.config.session_ttl_ms;
+        let inbox_cutoff = now - self.config.inbox_retention_ms;
+        conn.execute("DELETE FROM sessions WHERE last_heartbeat < ?1", params![session_cutoff])?;
+        conn.execute("DELETE FROM resource_locks WHERE expires_at < ?1", params![now])?;
+        conn.execute("DELETE FROM inbox WHERE created_at < ?1", params![inbox_cutoff])?;
         Ok(())
     }
 
@@ -338,14 +343,13 @@ impl Db {
     pub fn unregister_session(&self, session_id: &str) -> Result<UnregisterResult> {
         let conn = self.conn.lock();
 
-        // Count locks that will be released by the cascade.
         let locks_released: usize = conn
             .query_row(
                 "SELECT COUNT(*) FROM resource_locks WHERE session_id = ?1",
                 params![session_id],
                 |row| row.get::<_, i64>(0),
             )
-            .unwrap_or(0) as usize;
+            .map(|n| n as usize)?;
 
         let affected =
             conn.execute("DELETE FROM sessions WHERE id = ?1", params![session_id])?;
@@ -354,22 +358,20 @@ impl Db {
     }
 
     /// List sessions, optionally filtered by project. Prunes dead sessions
-    /// first so the caller always gets a fresh view.
+    /// first inside the same lock hold so the caller always gets a fresh view.
     pub fn list_sessions(&self, project: Option<&str>) -> Result<Vec<SessionRow>> {
-        // Prune without holding the lock across the query. The brief gap
-        // between prune and SELECT is benign — a session that becomes dead in
-        // that window simply appears once more and is pruned next call.
-        self.prune_dead_sessions()?;
-
+        let cutoff = Self::now_ms() - self.config.session_ttl_ms;
         let conn = self.conn.lock();
+        conn.execute("DELETE FROM sessions WHERE last_heartbeat < ?1", params![cutoff])?;
+
         let mut stmt = match project {
-            Some(_) => conn.prepare(
+            Some(_) => conn.prepare_cached(
                 "SELECT id, project, branch, intent, pid, hostname,
                         started_at, last_heartbeat, metadata
                  FROM sessions WHERE project = ?1
                  ORDER BY started_at",
             )?,
-            None => conn.prepare(
+            None => conn.prepare_cached(
                 "SELECT id, project, branch, intent, pid, hostname,
                         started_at, last_heartbeat, metadata
                  FROM sessions ORDER BY started_at",
@@ -547,19 +549,21 @@ impl Db {
         }
     }
 
-    /// List locks, optionally filtered by project. Prunes expired locks first.
+    /// List locks, optionally filtered by project. Prunes expired locks first
+    /// inside the same lock hold.
     pub fn list_locks(&self, project: Option<&str>) -> Result<Vec<LockRow>> {
-        self.prune_expired_locks()?;
-
+        let now = Self::now_ms();
         let conn = self.conn.lock();
+        conn.execute("DELETE FROM resource_locks WHERE expires_at < ?1", params![now])?;
+
         let mut stmt = match project {
-            Some(_) => conn.prepare(
+            Some(_) => conn.prepare_cached(
                 "SELECT resource, project, session_id, branch, reason,
                         long_op, ttl_ms, acquired_at, expires_at
                  FROM resource_locks WHERE project = ?1
                  ORDER BY acquired_at",
             )?,
-            None => conn.prepare(
+            None => conn.prepare_cached(
                 "SELECT resource, project, session_id, branch, reason,
                         long_op, ttl_ms, acquired_at, expires_at
                  FROM resource_locks ORDER BY acquired_at",
@@ -690,13 +694,18 @@ impl Db {
                 .collect::<std::result::Result<Vec<_>, _>>()?
         };
 
-        // Mark returned messages as read.
-        for msg in &messages {
-            conn.execute(
+        // Mark returned messages as read in a single transaction.
+        if !messages.is_empty() {
+            conn.execute_batch("BEGIN")?;
+            let mut mark_stmt = conn.prepare_cached(
                 "INSERT OR IGNORE INTO inbox_reads (session_id, message_id, read_at)
                  VALUES (?1, ?2, ?3)",
-                params![input.session_id, msg.id, now],
             )?;
+            for msg in &messages {
+                mark_stmt.execute(params![input.session_id, msg.id, now])?;
+            }
+            drop(mark_stmt);
+            conn.execute_batch("COMMIT")?;
         }
 
         let count = messages.len() as i64;
