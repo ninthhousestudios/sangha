@@ -13,11 +13,11 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Start the sangha server (default)
+    /// Start the sangha server (default: stdio)
     Serve {
-        /// Use stdio transport instead of HTTP (for testing / mcpjungle)
+        /// Use HTTP transport instead of stdio
         #[arg(long)]
-        stdio: bool,
+        http: bool,
     },
     /// Show active sessions
     Status {
@@ -66,19 +66,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
     let config = Arc::new(Config::from_env()?);
 
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(&config.log_level)),
-        )
-        .init();
+    let use_stderr = matches!(cli.command, Some(Commands::Serve { http: false }) | None);
+    if use_stderr {
+        tracing_subscriber::fmt()
+            .with_writer(std::io::stderr)
+            .with_env_filter(
+                tracing_subscriber::EnvFilter::try_from_default_env()
+                    .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(&config.log_level)),
+            )
+            .init();
+    } else {
+        tracing_subscriber::fmt()
+            .with_env_filter(
+                tracing_subscriber::EnvFilter::try_from_default_env()
+                    .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(&config.log_level)),
+            )
+            .init();
+    }
 
     match cli.command.unwrap_or(Commands::Status {
         project: None,
         user: false,
         json: false,
     }) {
-        Commands::Serve { stdio } => cmd_serve(config, stdio).await?,
+        Commands::Serve { http } => cmd_serve(config, http).await?,
         Commands::Status { project, user, json } => cmd_status(&config, project, user, json)?,
         Commands::Locks { project, user, json } => cmd_locks(&config, project, user, json)?,
         Commands::Clear { force_release, all, json } => {
@@ -93,16 +104,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 async fn cmd_serve(
     config: Arc<Config>,
-    stdio: bool,
+    http: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let db = Arc::new(Db::open(&config)?);
     db.run_migrations()?;
     db.prune_all()?;
 
-    if stdio {
-        serve_stdio(db, config).await
-    } else {
+    if http {
         serve_http(db, config).await
+    } else {
+        serve_stdio(db, config).await
     }
 }
 
