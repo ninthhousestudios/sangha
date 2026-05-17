@@ -25,9 +25,8 @@ cargo clippy -- -D warnings
 
 ## Architecture
 
-- Daemon: one sangha process, multiple CC sessions via streamable HTTP
-- `sangha serve` (default) binds TCP localhost:3200
-- `sangha serve --stdio` for testing/mcpjungle
+- `sangha serve` (default) uses stdio transport
+- `sangha serve --http` binds TCP localhost:3200 (multi-session)
 - Each HTTP connection gets its own MCP session + Identity
 - Db is shared via Arc
 

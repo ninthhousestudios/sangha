@@ -1,6 +1,6 @@
 # sangha
 
-[![License: MPL 2.0](https://img.shields.io/badge/License-MPL_2.0-brightgreen.svg)](https://opensource.org/licenses/MPL-2.0)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 
 Session coordination daemon for [manas](https://github.com/ninthhousestudios/manas). Provides a session registry with heartbeat TTL, advisory resource locks, and a broadcast inbox — all backed by SQLite.
 
@@ -138,6 +138,3 @@ All settings via environment variables:
 | `reflect:user` | user | Running `/reflect` skill |
 | `smriti-scan` | user | Running smriti background scan |
 
-## License
-
-[Mozilla Public License 2.0](LICENSE)

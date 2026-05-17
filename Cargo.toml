@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 publish = false
 license = "MPL-2.0"
+repository = "https://github.com/ninthhousestudios/manas"
 description = "Session coordination daemon for manas — registry, advisory locks, broadcast inbox"
 
 [[bin]]
